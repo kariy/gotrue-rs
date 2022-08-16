@@ -38,13 +38,50 @@
 mod api;
 mod client;
 pub mod error;
-mod session;
-mod user;
-mod user_attributes;
-mod user_list;
-mod user_update;
+pub mod session;
+pub mod user;
 
-pub use api::Api;
-pub use api::EmailOrPhone;
+pub use api::{Api, EmailOrPhone};
 pub use client::Client;
-pub use user_attributes::UserAttributes;
+
+pub enum Provider {
+    Apple,
+    Azure,
+    BitBucket,
+    Discord,
+    Facebook,
+    Github,
+    Google,
+    Gitlab,
+    Keycloak,
+    LinkedIn,
+    Notion,
+    Slack,
+    Spotify,
+    Twitch,
+    Twitter,
+    Workos,
+}
+
+impl Provider {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Provider::Apple => "apple",
+            Provider::Azure => "azure",
+            Provider::BitBucket => "bitbucket",
+            Provider::Discord => "discord",
+            Provider::Facebook => "facebook",
+            Provider::Github => "github",
+            Provider::Gitlab => "gitlab",
+            Provider::Google => "google",
+            Provider::Keycloak => "keycloak",
+            Provider::LinkedIn => "linkedin",
+            Provider::Notion => "notion",
+            Provider::Slack => "slack",
+            Provider::Spotify => "spotify",
+            Provider::Twitch => "twitch",
+            Provider::Twitter => "twitter",
+            Provider::Workos => "workos",
+        }
+    }
+}

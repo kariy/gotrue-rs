@@ -1,4 +1,4 @@
-use go_true::{Client, EmailOrPhone, UserAttributes};
+use go_true::{session::Session, user::UserAttributes, Client, EmailOrPhone};
 use rand::{distributions::Alphanumeric, Rng};
 use serde_json::json;
 use std::error::Error;
@@ -24,11 +24,11 @@ async fn it_signs_up_with_email() -> Result<(), Box<dyn Error>> {
     let password = String::from("Abcd1234!");
 
     let mut client = get_client();
-    let res = client
+    let Session { user, .. } = client
         .sign_up(EmailOrPhone::Email(email.clone()), &password)
         .await?;
 
-    assert_eq!(email, res.user.email);
+    assert_eq!(email, user.unwrap().email.unwrap());
 
     Ok(())
 }
@@ -62,11 +62,11 @@ async fn it_signs_in_with_email() -> Result<(), Box<dyn Error>> {
     client
         .sign_up(EmailOrPhone::Email(email.clone()), &password)
         .await?;
-    let res = client
+    let Session { user, .. } = client
         .sign_in(EmailOrPhone::Email(email.clone()), &password)
         .await?;
 
-    assert_eq!(res.user.email, email);
+    assert_eq!(user.unwrap().email.unwrap(), email);
     Ok(())
 }
 
@@ -120,10 +120,14 @@ async fn it_should_refresh_session() -> Result<(), Box<dyn Error>> {
         .sign_in(EmailOrPhone::Email(email.clone()), &password)
         .await?;
 
-    let session = client.refresh_session().await?;
+    let Session {
+        user,
+        refresh_token,
+        ..
+    } = client.refresh_session().await?;
 
-    assert_eq!(session.user.email, email);
-    assert_ne!(old_session.refresh_token, session.refresh_token);
+    assert_eq!(user.unwrap().email.unwrap(), email);
+    assert_ne!(old_session.refresh_token.unwrap(), refresh_token.unwrap());
 
     Ok(())
 }
@@ -219,9 +223,10 @@ async fn it_should_update_user() -> Result<(), Box<dyn Error>> {
 
     let new_email = get_random_email();
     let attributes = UserAttributes {
-        email: new_email.clone(),
-        password: "Abcd12345!".to_string(),
-        data: json!({ "test": "test" }),
+        email: new_email.clone().into(),
+        password: "Abcd12345!".to_string().into(),
+        data: json!({ "test": "test" }).into(),
+        ..Default::default()
     };
 
     let update = client.update_user(attributes).await?;
@@ -241,8 +246,13 @@ async fn it_should_set_session_by_refresh_token() -> Result<(), Box<dyn Error>> 
         .sign_up(EmailOrPhone::Email(email.clone()), &password)
         .await?;
 
-    let session = client.set_session(&old_session.refresh_token).await?;
-    assert_eq!(old_session.user.email, session.user.email);
+    let session = client
+        .set_session(&old_session.refresh_token.unwrap())
+        .await?;
+    assert_eq!(
+        old_session.user.unwrap().email.unwrap(),
+        session.user.unwrap().email.unwrap()
+    );
 
     Ok(())
 }

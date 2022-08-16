@@ -1,9 +1,9 @@
 use reqwest::header::{HeaderMap, HeaderValue, IntoHeaderName};
-use serde_json::json;
+use serde_json::{json, Value};
 
 use crate::{
-    session::Session, user::User, user_attributes::UserAttributes, user_list::UserList,
-    user_update::UserUpdate,
+    session::Session,
+    user::{User, UserAttributes, UserList, UserUpdate},
 };
 
 pub struct Api {
@@ -58,6 +58,16 @@ impl Api {
         self
     }
 
+    fn create_request_headers(&self, jwt: impl AsRef<str>) -> HeaderMap {
+        let mut headers = self.headers.clone();
+        headers.insert(
+            "Authorization",
+            HeaderValue::from_str(jwt.as_ref()).expect("Invalid header value."),
+        );
+
+        headers
+    }
+
     /// Signs up for a new account
     ///
     /// # Example
@@ -67,13 +77,16 @@ impl Api {
     ///
     /// #[tokio::main]
     /// async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    ///     let url = "http://localhost:9998".to_string();
+    ///     let url = "https://quepskrrpovzwydvfezs.supabase.co/auth/v1/".to_string();
     ///     let mut client = Api::new(url);
     ///
     ///     let email = "email@example.com".to_string();
     ///     let password = "Abcd1234!".to_string();
     ///
     ///     let result = client.sign_up(EmailOrPhone::Email(email), &password).await;
+    ///     
+    ///     println!("{:?}", result);
+    ///
     ///     Ok(())
     /// }
     /// ```
@@ -81,7 +94,7 @@ impl Api {
         &self,
         email_or_phone: EmailOrPhone,
         password: &String,
-    ) -> Result<Session, reqwest::Error> {
+    ) -> Result<Value, reqwest::Error> {
         let endpoint = format!("{}/signup", self.url);
 
         let body = match email_or_phone {
@@ -95,7 +108,7 @@ impl Api {
             }),
         };
 
-        let response: Session = self
+        let response: Value = self
             .client
             .post(endpoint)
             .headers(self.headers.clone())
@@ -103,7 +116,7 @@ impl Api {
             .send()
             .await?
             .error_for_status()?
-            .json::<Session>()
+            .json()
             .await?;
 
         return Ok(response);
@@ -133,7 +146,7 @@ impl Api {
         &self,
         email_or_phone: EmailOrPhone,
         password: &String,
-    ) -> Result<Session, reqwest::Error> {
+    ) -> Result<Value, reqwest::Error> {
         let query_string = String::from("?grant_type=password");
 
         let endpoint = format!("{}/token{}", self.url, query_string);
@@ -149,7 +162,7 @@ impl Api {
             }),
         };
 
-        let response: Session = self
+        let response: Value = self
             .client
             .post(endpoint)
             .headers(self.headers.clone())
@@ -157,7 +170,7 @@ impl Api {
             .send()
             .await?
             .error_for_status()?
-            .json::<Session>()
+            .json()
             .await?;
 
         return Ok(response);
@@ -330,13 +343,12 @@ impl Api {
         refresh_token: &str,
     ) -> Result<Session, reqwest::Error> {
         let endpoint = format!("{}/token?grant_type=refresh_token", self.url);
-        let body = json!({ "refresh_token": refresh_token });
 
         let session: Session = self
             .client
             .post(endpoint)
             .headers(self.headers.clone())
-            .json(&body)
+            .json(&json!({ "refresh_token": refresh_token }))
             .send()
             .await?
             .error_for_status()?
@@ -371,17 +383,10 @@ impl Api {
     pub async fn get_user(&self, jwt: &str) -> Result<User, reqwest::Error> {
         let endpoint = format!("{}/user", self.url);
 
-        let mut headers: HeaderMap = self.headers.clone();
-        let bearer = format!("Bearer {jwt}");
-        headers.insert(
-            "Authorization",
-            HeaderValue::from_str(bearer.as_ref()).expect("Invalid header value."),
-        );
-
         let user: User = self
             .client
             .get(endpoint)
-            .headers(headers)
+            .headers(self.create_request_headers(jwt))
             .send()
             .await?
             .error_for_status()?

@@ -2,15 +2,16 @@ use crate::{
     api::{Api, EmailOrPhone},
     error::Error,
     session::Session,
-    user_attributes::UserAttributes,
-    user_update::UserUpdate,
+    user::{User, UserAttributes, UserUpdate},
 };
 
 pub struct Client {
+    pub api: Api,
+    current_user: Option<User>,
     current_session: Option<Session>,
-    api: Api,
 }
 
+#[allow(unused)]
 impl Client {
     /// Creates a GoTrue Client.
     ///
@@ -22,9 +23,12 @@ impl Client {
     /// let client = Client::new("http://your.gotrue.endpoint".to_string());
     /// ```
     pub fn new(url: String) -> Client {
+        let api = Api::new(url);
+
         Client {
+            api,
+            current_user: None,
             current_session: None,
-            api: Api::new(url),
         }
     }
 
@@ -37,7 +41,7 @@ impl Client {
     ///
     /// #[tokio::main]
     ///     async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    ///     let client = Client::new("http://your.gotrue.endpoint".to_string());
+    ///     let mut client = Client::new("http://your.gotrue.endpoint".into());
     ///     let email = "some_email".to_string();
     ///     let password = "some_password".to_string();
     ///     let res = client
@@ -49,19 +53,28 @@ impl Client {
         &mut self,
         email_or_phone: EmailOrPhone,
         password: &String,
-    ) -> Result<Session, Error> {
-        self.current_session = None;
-        let result = self.api.sign_up(email_or_phone, &password).await;
+    ) -> Result<return_data::SignUp, Error> {
+        self.remove_session();
 
-        match result {
-            Ok(session) => {
-                self.current_session = Some(session.clone());
-                return Ok(session);
+        let response = self.api.sign_up(email_or_phone, &password).await;
+
+        match response {
+            Ok(result) => {
+                let (session, user) = (
+                    serde_json::from_value::<Session>(result.clone()).ok(),
+                    serde_json::from_value::<User>(result).ok(),
+                );
+
+                self.current_session = session.clone();
+
+                Ok(return_data::SignUp { session, user })
             }
+
             Err(e) => {
                 if e.is_status() && e.status().unwrap().as_str() == "400" {
                     return Err(Error::AlreadySignedUp);
                 }
+
                 return Err(Error::InternalError);
             }
         }
@@ -88,14 +101,25 @@ impl Client {
         &mut self,
         email_or_phone: EmailOrPhone,
         password: &String,
-    ) -> Result<Session, Error> {
-        self.current_session = None;
+    ) -> Result<return_data::SignIn, Error> {
+        self.remove_session();
+
         let result = self.api.sign_in(email_or_phone, &password).await;
 
         match result {
-            Ok(session) => {
-                self.current_session = Some(session.clone());
-                return Ok(session);
+            Ok(result) => {
+                let (session, user) = (
+                    serde_json::from_value::<Session>(result.clone()).ok(),
+                    serde_json::from_value::<User>(result).ok(),
+                );
+
+                self.current_session = session.clone();
+
+                Ok(return_data::SignIn {
+                    session,
+                    user,
+                    ..Default::default()
+                })
             }
             Err(e) => {
                 if e.is_status() && e.status().unwrap().as_str() == "400" {
@@ -248,13 +272,18 @@ impl Client {
             return Err(Error::NotAuthenticated);
         }
 
-        let result = match &self.current_session {
-            Some(session) => self.api.refresh_access_token(&session.refresh_token).await,
-            None => return Err(Error::MissingRefreshToken),
+        let result = match self.current_session {
+            Some(Session {
+                refresh_token: Some(ref refresh_token),
+                ..
+            }) => self.api.refresh_access_token(refresh_token).await,
+
+            _ => return Err(Error::MissingRefreshToken),
         };
 
         let session = match result {
             Ok(session) => session,
+
             Err(_) => return Err(Error::InternalError),
         };
 
@@ -293,5 +322,37 @@ impl Client {
         self.current_session = Some(session.clone());
 
         return Ok(session);
+    }
+
+    fn remove_session(&mut self) {
+        self.current_session = None;
+    }
+
+    fn user(&self) -> &Option<User> {
+        &self.current_user
+    }
+
+    fn session(&self) -> &Option<Session> {
+        &self.current_session
+    }
+}
+
+mod return_data {
+
+    use crate::session::Session;
+    use crate::user::User;
+
+    #[derive(Debug, Default)]
+    pub struct SignUp {
+        pub user: Option<User>,
+        pub session: Option<Session>,
+    }
+
+    #[derive(Debug, Default)]
+    pub struct SignIn {
+        pub user: Option<User>,
+        pub session: Option<Session>,
+        pub url: Option<String>,
+        pub provider: Option<String>,
     }
 }

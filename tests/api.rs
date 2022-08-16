@@ -1,4 +1,4 @@
-use go_true::{Api, EmailOrPhone, UserAttributes};
+use go_true::{session::Session, user::UserAttributes, Api, EmailOrPhone};
 use rand::{distributions::Alphanumeric, Rng};
 use serde_json::json;
 use std::error::Error;
@@ -60,7 +60,7 @@ async fn it_signs_up_with_email() -> Result<(), Box<dyn Error>> {
         .sign_up(EmailOrPhone::Email(email.clone()), &password)
         .await?;
 
-    assert_eq!(res.user.email, email);
+    assert_eq!(res.user.unwrap().email.unwrap(), email);
 
     Ok(())
 }
@@ -77,7 +77,7 @@ async fn it_signs_in_with_email() -> Result<(), Box<dyn Error>> {
         .sign_in(EmailOrPhone::Email(email.clone()), &password)
         .await?;
 
-    assert_eq!(res.user.email, email);
+    assert_eq!(res.user.unwrap().email.unwrap(), email);
     Ok(())
 }
 
@@ -124,7 +124,7 @@ async fn it_should_log_out() -> Result<(), Box<dyn Error>> {
         .sign_in(EmailOrPhone::Email(email.clone()), &password)
         .await?;
 
-    assert_eq!(res.user.email, email);
+    assert_eq!(res.user.unwrap().email.unwrap(), email);
 
     let success = api.sign_out(&res.access_token).await?;
 
@@ -145,7 +145,7 @@ async fn it_should_return_error_if_token_is_invalid() -> Result<(), Box<dyn Erro
         .sign_in(EmailOrPhone::Email(email.clone()), &password)
         .await?;
 
-    assert_eq!(res.user.email, email);
+    assert_eq!(res.user.unwrap().email.unwrap(), email);
 
     let success = api.sign_out(&"invalid-token".to_string()).await;
 
@@ -187,13 +187,13 @@ async fn it_should_refresh_token() -> Result<(), Box<dyn Error>> {
     let api = get_api_client();
     api.sign_up(EmailOrPhone::Email(email.clone()), &password)
         .await?;
-    let session = api
+    let Session { refresh_token, .. } = api
         .sign_in(EmailOrPhone::Email(email.clone()), &password)
         .await?;
 
-    let new_session = api.refresh_access_token(&session.refresh_token).await?;
+    let new_session = api.refresh_access_token(&refresh_token.unwrap()).await?;
 
-    assert_eq!(new_session.user.email, email);
+    assert_eq!(new_session.user.unwrap().email.unwrap(), email);
 
     Ok(())
 }
@@ -212,7 +212,7 @@ async fn it_should_return_user() -> Result<(), Box<dyn Error>> {
 
     let user = api.get_user(&session.access_token).await?;
 
-    assert_eq!(user.email, email);
+    assert_eq!(user.email.unwrap(), email);
 
     Ok(())
 }
@@ -229,9 +229,10 @@ async fn it_should_update_user() -> Result<(), Box<dyn Error>> {
 
     let new_email = get_random_email();
     let attributes = UserAttributes {
-        email: new_email.clone(),
-        password: "Abcd12345!".to_string(),
-        data: json!({ "test": "test" }),
+        email: new_email.clone().into(),
+        password: "Abcd12345!".to_string().into(),
+        data: json!({ "test": "test" }).into(),
+        ..Default::default()
     };
 
     let update = api.update_user(attributes, &session.access_token).await?;
@@ -247,7 +248,7 @@ async fn it_should_invite_user_by_email() -> Result<(), Box<dyn Error>> {
     let api = get_service_api_client();
     let user = api.invite_user_by_email(&email).await?;
 
-    assert_eq!(user.email, email);
+    assert_eq!(user.email.unwrap(), email);
 
     Ok(())
 }
@@ -274,14 +275,16 @@ async fn it_should_get_user_by_id() -> Result<(), Box<dyn Error>> {
     let email = get_random_email();
     let password = String::from("Abcd1234!");
     let client_api = get_api_client();
-    let session = client_api
+    let Session { user, .. } = client_api
         .sign_up(EmailOrPhone::Email(email.clone()), &password)
         .await?;
 
     let api = get_service_api_client();
-    let user = api.get_user_by_id(&session.user.id).await?;
+    let user = api.get_user_by_id(&user.unwrap().id).await?;
 
-    assert_eq!(user.email, email);
+    println!("got email : {}", user.email.clone().unwrap());
+
+    assert_eq!(user.email.unwrap(), email);
 
     Ok(())
 }
@@ -300,7 +303,7 @@ async fn it_should_create_user() -> Result<(), Box<dyn Error>> {
 
     let response = api.create_user(user).await?;
 
-    assert_eq!(response.email, email);
+    assert_eq!(response.email.unwrap(), email);
 
     Ok(())
 }
@@ -318,7 +321,7 @@ async fn it_should_update_user_by_id() -> Result<(), Box<dyn Error>> {
     };
 
     let create_response = api.create_user(user).await?;
-    assert_eq!(create_response.email, email);
+    assert_eq!(create_response.email.unwrap(), email);
 
     let new_email = get_random_email();
 
@@ -334,7 +337,7 @@ async fn it_should_update_user_by_id() -> Result<(), Box<dyn Error>> {
         .update_user_by_id(&create_response.id, user.clone())
         .await?;
 
-    assert_eq!(update_response.email, new_email);
+    assert_eq!(update_response.email.unwrap(), new_email);
 
     Ok(())
 }
@@ -352,19 +355,28 @@ async fn it_should_delete_user() -> Result<(), Box<dyn Error>> {
     };
 
     let create_response = api.create_user(user).await?;
-    assert_eq!(create_response.email, email);
+    assert_eq!(create_response.email.unwrap(), email);
 
     let old_user_list = api.list_users(None).await?;
 
     api.delete_user(&create_response.id).await?;
     assert_eq!(
-        old_user_list.users.iter().any(|user| user.email == email),
+        old_user_list
+            .users
+            .iter()
+            .any(|user| user.email.as_ref().unwrap() == &email),
         true
     );
 
     let userlist = api.list_users(None).await?;
 
-    assert_eq!(userlist.users.iter().any(|user| user.email == email), false);
+    assert_eq!(
+        userlist
+            .users
+            .iter()
+            .any(|user| user.email.as_ref().unwrap() == &email),
+        false
+    );
 
     Ok(())
 }
