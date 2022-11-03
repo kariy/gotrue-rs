@@ -5,6 +5,20 @@ use crate::{
     user::{User, UserAttributes, UserUpdate},
 };
 
+#[derive(Debug, Default)]
+pub struct SignUpResponse {
+    pub user: Option<User>,
+    pub session: Option<Session>,
+}
+
+#[derive(Debug, Default)]
+pub struct SignInResponse {
+    pub user: Option<User>,
+    pub session: Option<Session>,
+    pub url: Option<String>,
+    pub provider: Option<String>,
+}
+
 pub struct Client {
     pub api: Api,
     current_user: Option<User>,
@@ -53,7 +67,7 @@ impl Client {
         &mut self,
         email_or_phone: EmailOrPhone,
         password: &String,
-    ) -> Result<return_data::SignUp, Error> {
+    ) -> Result<SignUpResponse, Error> {
         self.remove_session();
 
         let response = self.api.sign_up(email_or_phone, &password).await;
@@ -67,7 +81,7 @@ impl Client {
 
                 self.current_session = session.clone();
 
-                Ok(return_data::SignUp { session, user })
+                Ok(SignUpResponse { session, user })
             }
 
             Err(e) => {
@@ -101,7 +115,7 @@ impl Client {
         &mut self,
         email_or_phone: EmailOrPhone,
         password: &String,
-    ) -> Result<return_data::SignIn, Error> {
+    ) -> Result<SignInResponse, Error> {
         self.remove_session();
 
         let result = self.api.sign_in(email_or_phone, &password).await;
@@ -115,7 +129,7 @@ impl Client {
 
                 self.current_session = session.clone();
 
-                Ok(return_data::SignIn {
+                Ok(SignInResponse {
                     session,
                     user,
                     ..Default::default()
@@ -334,25 +348,5 @@ impl Client {
 
     fn session(&self) -> &Option<Session> {
         &self.current_session
-    }
-}
-
-mod return_data {
-
-    use crate::session::Session;
-    use crate::user::User;
-
-    #[derive(Debug, Default)]
-    pub struct SignUp {
-        pub user: Option<User>,
-        pub session: Option<Session>,
-    }
-
-    #[derive(Debug, Default)]
-    pub struct SignIn {
-        pub user: Option<User>,
-        pub session: Option<Session>,
-        pub url: Option<String>,
-        pub provider: Option<String>,
     }
 }
